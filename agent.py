@@ -7,78 +7,62 @@ from langchain_together import ChatTogether
 from dotenv import load_dotenv
 load_dotenv()
 import os
-
-llm = ChatGoogleGenerativeAI(
-         model="gemini-2.0-flash-001",
-         temperature=0,
-         max_tokens=None,
-         timeout=None,
-         max_retries=2,
-         api_key=os.getenv("GEMINI_API_KEY")
-         )
-# llm = ChatTogether(
-#          model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
-#          together_api_key=os.getenv("TOGETHER_API_KEY")
-#      )
+import sys
 
 class AgentState(TypedDict):
     case_details: AnyMessage
     discovered_info: str
-    chat_history: str
+    chat_history: list
     user_input: str
     router_info: str
-    chat_history: list[str]
 
 class Agent:
     def __init__(self, model):
         self.model = model
         self.graph = StateGraph(AgentState)
 
-        self.graph.add_node("router",lambda state: state) #router node is created
-        self.graph.add_node("mysterygen",RunnableLambda(self.mystery_generator))
-        self.graph.add_node("suspect4",RunnableLambda(self.suspect4))
-        self.graph.add_node("suspect3",RunnableLambda(self.suspect3))
-        self.graph.add_node("suspect2",RunnableLambda(self.suspect2))
-        self.graph.add_node("suspect1",RunnableLambda(self.suspect1))
-        self.graph.add_node("default",RunnableLambda(self.default))
-        self.graph.add_node("get_input",RunnableLambda(self.get_input))
-        self.graph.add_node("solution",RunnableLambda(self.solution))
+        self.graph.add_node("router", lambda state: state)
+        self.graph.add_node("mysterygen", RunnableLambda(self.mystery_generator))
+        self.graph.add_node("suspect4", RunnableLambda(self.suspect4))
+        self.graph.add_node("suspect3", RunnableLambda(self.suspect3))
+        self.graph.add_node("suspect2", RunnableLambda(self.suspect2))
+        self.graph.add_node("suspect1", RunnableLambda(self.suspect1))
+        self.graph.add_node("default", RunnableLambda(self.default))
+        self.graph.add_node("get_input", RunnableLambda(self.get_input))
+        self.graph.add_node("solution", RunnableLambda(self.solution))
 
         self.graph.set_entry_point("mysterygen")
-        self.graph.add_edge("mysterygen","get_input")
+        self.graph.add_edge("mysterygen", "get_input")
 
-        while self.graph.add_conditional_edges("solution", self.solution) is True:
-            self.graph.add_edge("get_input","router")
-            self.graph.add_conditional_edges("router", self.router)
-            self.graph.add_edge("suspect4","get_input")
-            self.graph.add_edge("suspect3","get_input")
-            self.graph.add_edge("suspect2","get_input")
-            self.graph.add_edge("suspect1","get_input")
-            self.graph.add_edge("default","get_input")
+        self.graph.add_conditional_edges("solution", self.solution)
+        self.graph.add_edge("get_input", "router")
+        self.graph.add_conditional_edges("router", self.router)
+        self.graph.add_edge("suspect4", "get_input")
+        self.graph.add_edge("suspect3", "get_input")
+        self.graph.add_edge("suspect2", "get_input")
+        self.graph.add_edge("suspect1", "get_input")
+        self.graph.add_edge("default", "get_input")    
 
         self.graph = self.graph.compile()   
 
-    def mystery_generator(self,state:AgentState):
+    def mystery_generator(self, state: AgentState):
         prompt = ([HumanMessage("""
         Create a detective mystery with multiple possible culprits.
-    
+
         Generate:
         1. A crime description
-        2. 3-4 suspects with these details for each:
-        - Name and role
-        - Strong motive for the crime
-        - Access to crime scene
-        - One suspicious fact
-        - One piece of evidence pointing to them
+        2. 4 suspects with these details for each, formatted exactly as shown:
+        Suspect 1: [Name], [Role]. Motive: [Motive]. Access: [Access]. Suspicious Fact: [Fact]. Evidence: [Evidence]
+        Suspect 2: [Name], [Role]. Motive: [Motive]. Access: [Access]. Suspicious Fact: [Fact]. Evidence: [Evidence]
+        Suspect 3: [Name], [Role]. Motive: [Motive]. Access: [Access]. Suspicious Fact: [Fact]. Evidence: [Evidence]
+        Suspect 4: [Name], [Role]. Motive: [Motive]. Access: [Access]. Suspicious Fact: [Fact]. Evidence: [Evidence]
         
-        you can grab inspiration from sherlock holmes, agatha christie, or any other detective story.
-        Make sure multiple suspects could reasonably be guilty based on the evidence.
-        Format your response as a case briefing to a detective.
+        Inspiration: Sherlock Holmes, Agatha Christie.
+        Ensure multiple suspects could be guilty.
+        Format as a case briefing to a detective, starting with the crime description followed by the suspect details in the exact format above.
         """)])
-        result = self.model.invoke(prompt) #prompt being forwarded to model which is the LLM, then response stored in the result
-        state["case_details"] = result
-
-        print(state["case_details"].content)
+        result = self.model.invoke(prompt)
+        state["case_details"] = result.content
 
         instructions = """
         ===== Welcome to the Detective Mystery Game! =====
@@ -99,18 +83,20 @@ class Agent:
         Let the investigation begin!
         ===============================================
         """
-        print(instructions)
 
         return state 
     
-    def get_input(self,state:AgentState):
-        # Get user input and update state
+    def get_input(self, state: AgentState):
+        # This will be replaced in the Streamlit app
+        # But keeping it for console-based testing
         chat_history = state.get("chat_history", [])
         user_input = input("\nDetective: ")
-        return {'user_input': user_input, 'chat_history': chat_history}
+        state["user_input"] = user_input
+        state["chat_history"] = chat_history
+        return state
     
-    def suspect4(self,state:AgentState):
-        behaviour = state["case_details"].content
+    def suspect4(self, state: AgentState):
+        behaviour = state["case_details"]
         chat_history = state.get("chat_history", [])
         prompt = f"""
         This is the details: {behaviour}
@@ -128,15 +114,18 @@ class Agent:
         Do not include any information that is not relevant to the case. 
         """
         result = self.model.invoke(prompt)
-        print(result.content)
+        response_content = result.content if hasattr(result, 'content') else result
         
-        chat_history.append({"role": "detective", "content": state["user_input"]})
-        chat_history.append({"role": "suspect 4", "content": result.content})
-        state["chat_history"] = chat_history #update the chat history in the state
-        return state #prompt being forwarded to model which is the LLM, then response stored in the result
+        # Don't print to console when in Streamlit
+        if "streamlit" not in sys.modules:
+            print(response_content)
+        
+        chat_history.append({"role": "suspect 4", "content": response_content})
+        state["chat_history"] = chat_history
+        return state
 
     def suspect3(self, state: AgentState):
-        behaviour = state["case_details"].content
+        behaviour = state["case_details"]
         chat_history = state.get("chat_history", [])
         
         prompt = f"""
@@ -155,15 +144,18 @@ class Agent:
         Do not include any information that is not relevant to the case.
         """
         result = self.model.invoke(prompt)
-        print(result.content)
+        response_content = result.content if hasattr(result, 'content') else result
         
-        chat_history.append({"role": "detective", "content": state["user_input"]})
-        chat_history.append({"role": "suspect 3", "content": result.content})
-        state["chat_history"] = chat_history #update the chat history in the state
+        # Don't print to console when in Streamlit
+        if "streamlit" not in sys.modules:
+            print(response_content)
+        
+        chat_history.append({"role": "suspect 3", "content": response_content})
+        state["chat_history"] = chat_history
         return state    
 
     def suspect2(self, state: AgentState):
-        behaviour = state["case_details"].content
+        behaviour = state["case_details"]
         chat_history = state.get("chat_history", [])
         
         prompt = f"""
@@ -182,15 +174,18 @@ class Agent:
         Do not include any information that is not relevant to the case.
         """
         result = self.model.invoke(prompt)
-        print(result.content)
+        response_content = result.content if hasattr(result, 'content') else result
         
-        chat_history.append({"role": "detective", "content": state["user_input"]})
-        chat_history.append({"role": "suspect 2", "content": result.content})
-        state["chat_history"] = chat_history #update the chat history in the state
+        # Don't print to console when in Streamlit
+        if "streamlit" not in sys.modules:
+            print(response_content)
+        
+        chat_history.append({"role": "suspect 2", "content": response_content})
+        state["chat_history"] = chat_history
         return state
 
     def suspect1(self, state: AgentState):
-        behaviour = state["case_details"].content
+        behaviour = state["case_details"]
         chat_history = state.get("chat_history", [])
         
         prompt = f"""
@@ -209,15 +204,18 @@ class Agent:
         Do not include any information that is not relevant to the case.
         """
         result = self.model.invoke(prompt)
-        print(result.content)
+        response_content = result.content if hasattr(result, 'content') else result
         
-        chat_history.append({"role": "detective", "content": state["user_input"]})
-        chat_history.append({"role": "suspect 1", "content": result.content})
-        state["chat_history"] = chat_history #update the chat history in the state
+        # Don't print to console when in Streamlit
+        if "streamlit" not in sys.modules:
+            print(response_content)
+        
+        chat_history.append({"role": "suspect 1", "content": response_content})
+        state["chat_history"] = chat_history
         return state
     
     def default(self, state: AgentState):
-        behaviour = state["case_details"].content
+        behaviour = state["case_details"]
         chat_history = state.get("chat_history", [])
         detective_input = state["user_input"]
         
@@ -248,17 +246,19 @@ class Agent:
         """
         
         result = self.model.invoke(prompt)
-        print(result.content)
+        response_content = result.content if hasattr(result, 'content') else result
         
-        chat_history.append({"role": "detective", "content": detective_input})
-        chat_history.append({"role": "assistant", "content": result.content})
+        # Don't print to console when in Streamlit
+        if "streamlit" not in sys.modules:
+            print(response_content)
+        
+        chat_history.append({"role": "assistant", "content": response_content})
         state["chat_history"] = chat_history
         
         return state
-
     
     def solution(self, state: AgentState):
-        behaviour = state["case_details"].content
+        behaviour = state["case_details"]
         chat_history = state.get("chat_history", [])
         user_input = state["user_input"].lower()
         
@@ -291,23 +291,30 @@ class Agent:
         """
         
         result = self.model.invoke(prompt)
-        print("\n===== DETECTIVE'S ANALYSIS =====")
-        print(result.content)
-        print("================================\n")
+        response_content = result.content if hasattr(result, 'content') else result
         
-        chat_history.append({"role": "detective", "content": user_input})
-        chat_history.append({"role": "analysis", "content": result.content})
+        # Don't print to console when in Streamlit
+        if "streamlit" not in sys.modules:
+            print("\n===== DETECTIVE'S ANALYSIS =====")
+            print(response_content)
+            print("================================\n")
+            
+            if "CASE SOLVED" in response_content:
+                follow_up = input("\nCase solved! Type 'end' to conclude or anything else to continue: ")
+                if follow_up.lower().strip() == "end":
+                    print("\n===== CASE CLOSED =====\n")
+                    return END
+        
+        chat_history.append({"role": "analysis", "content": response_content})
         state["chat_history"] = chat_history
         
-        if "CASE SOLVED" in result.content:
-            follow_up = input("\nCase solved! Type 'end' to conclude or anything else to continue: ")
-            if follow_up.lower().strip() == "end":
-                print("\n===== CASE CLOSED =====\n")
-                return END
-        
+        if "CASE SOLVED" in response_content and "streamlit" in sys.modules:
+            # For Streamlit, return END to indicate case conclusion
+            return END
+            
         return "get_input"
     
-    def router(self,state:AgentState):
+    def router(self, state: AgentState):
         user_input = state["user_input"].lower()
         chat_history = state.get("chat_history", [])
         prompt = f"""
@@ -345,7 +352,7 @@ class Agent:
         result = self.model.invoke(prompt)
         result = result.content.lower()
 
-        if "generate mystery" in result:
+        if "generate mystery" in result or "mysterygen" in result:
             return "mysterygen"
         elif "suspect4" in result:
             return "suspect4"
@@ -355,14 +362,21 @@ class Agent:
             return "suspect2"
         elif "suspect1" in result:
             return "suspect1"
-        elif "solution check" in result:
+        elif "solution" in result:
             return "solution"
-        elif "exit" or "quit" in result:
+        elif "exit" in result or "quit" in result:
             return END
         else:
             return "default"
 
-def main():    
-        agent = Agent(llm)
-        agent.graph.invoke({})        
-main()
+    def main(self):    
+        # This is only used for console-based running
+        state = AgentState(
+            case_details="",
+            discovered_info="",
+            chat_history=[],
+            user_input="",
+            router_info=""
+        )
+        result = self.graph.invoke(state)
+        return result
