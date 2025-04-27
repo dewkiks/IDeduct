@@ -142,4 +142,4 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 ---
 
-🕵️‍♂️ **Put on your detective hat and unravel the mystery!**
+Made with ❤️ by dewkiks
